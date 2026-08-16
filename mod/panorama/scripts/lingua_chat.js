@@ -757,6 +757,19 @@
     return !!pa && pa === pb;
   }
 
+  // 出站消息先在本地做轻量判断,避免纯英文/数字等目标语言内容仍请求在线翻译。
+  // Deadlock 专用场景以中译英为主:只要含中文(含中英混合)就翻译,否则直接发送。
+  function shouldTranslateOutgoing(text, targetLanguage) {
+    const value = String(text || "").trim();
+    if (!value || value.charAt(0) === "/") return false;
+    if (!/[A-Za-z\u3400-\u4dbf\u4e00-\u9fff]/.test(value)) return false;
+    if (/^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(value)) return false;
+    const target = String(targetLanguage || "").toLowerCase().split("-")[0];
+    if (target === "en") return CJK_RE.test(value);
+    if (target === "zh") return !CJK_RE.test(value);
+    return true;
+  }
+
   function shouldSkip(record) {
     const text = record.text;
     if (!text || text.length < 2) return true;
@@ -2227,6 +2240,16 @@ function injectTranslation(row, sig, text) {
     const outgoingMode = State.cfg.outgoing || "off";
     if (State.cfg.enabled && outgoingMode !== "off" && trimmed.charAt(0) !== "/") {
       const outTarget = resolveOutgoingTarget();
+      if (!shouldTranslateOutgoing(trimmed, outTarget)) {
+        log("outgoing: local language bypass -> " + trimmed.slice(0, 80));
+        setStatus("原文已是目标语言,直接发送");
+        try {
+          input.text = trimmed;
+        } catch (e) {}
+        triggerStockSubmit(input);
+        clearInput();
+        return;
+      }
       // 防重复发送:同一文本翻译中,重复按 Enter 直接忽略(避免队列积压发多条)
       // 不同文本则排队(前一文本的翻译结果已提交,不冲突)
       if (State.outgoingPending === trimmed) {

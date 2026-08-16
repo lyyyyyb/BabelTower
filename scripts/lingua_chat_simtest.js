@@ -9,6 +9,7 @@ const path = require("path");
 // node 原生 setTimeout 引用:mock 基础设施必须用它,不查全局
 // (test13 会摘掉全局 setTimeout 模拟 Panorama 环境,若 mock 依赖全局会被误炸)
 const nativeSetTimeout = setTimeout;
+const activeSchedules = new Set();
 
 const SCRIPT = path.join(__dirname, "..", "mod", "panorama", "scripts", "lingua_chat.js");
 
@@ -68,6 +69,8 @@ class MockPanel {
 
 // ---------------- 独立环境:面板树 + $ + 配置 + 模块加载 ----------------
 function freshEnv(cfg) {
+  for (const timer of activeSchedules) clearTimeout(timer);
+  activeSchedules.clear();
   delete require.cache[require.resolve(SCRIPT)];
 
   const contextPanel = new MockPanel("ContextPanel");
@@ -93,8 +96,10 @@ function freshEnv(cfg) {
   const hudMessages = hudChat.addChild(new MockPanel("Messages"));
   const hudChat2 = contextPanel.addChild(new MockPanel("Team2Chat"));
   const hudMessages2 = hudChat2.addChild(new MockPanel("Messages"));
+  const bridgeRequests = [];
 
   bridgePanel.SetURL = function (url) {
+    bridgeRequests.push(url);
     const q = new URL(url, "http://x").searchParams;
     const id = q.get("id") || "x";
     const text = q.get("text") || "";
@@ -127,10 +132,19 @@ function freshEnv(cfg) {
   const dispatchLog = [];
   globalThis.$ = {
     Msg: (...a) => console.log("[LCT-sim]", ...a),
-    Schedule: (sec, fn) => nativeSetTimeout(fn, sec * 1000),
+    Schedule: (sec, fn) => {
+      const timer = nativeSetTimeout(() => {
+        activeSchedules.delete(timer);
+        fn();
+      }, sec * 1000);
+      activeSchedules.add(timer);
+      return timer;
+    },
     CreatePanel: (type, parent, id) => parent.addChild(new MockPanel(id)).setClass(type === "Label" ? "Label" : type),
     RegisterForUnhandledEvent: () => {},
-    DispatchEvent: (name, target) => { dispatchLog.push({ name, target }); },
+    DispatchEvent: (name, target) => {
+      dispatchLog.push({ name, target, text: target && typeof target.text === "string" ? target.text : null });
+    },
     GetContextPanel: () => focusedPanel || contextPanel,
   };
   globalThis.Convars = { GetStr: () => "", RegisterConVar: () => {}, SetValue: () => {} };
@@ -138,7 +152,7 @@ function freshEnv(cfg) {
   require(SCRIPT);
 
   return {
-    contextPanel, messagesPanel, hudMessages, hudMessages2, settingsPanel, dispatchLog,
+    contextPanel, messagesPanel, hudMessages, hudMessages2, settingsPanel, dispatchLog, bridgeRequests,
     setFocusedPanel(p) { focusedPanel = p; },
     addRow(kind, sender, text, opts) {
       const row = new MockPanel(null).setClass("ChatMessage", "Expired");
@@ -561,10 +575,38 @@ async function test18_outgoingClosesChatImmediately() {
   assert("translated submit waits for API result", submits.length === 0, "count=" + submits.length);
 }
 
+async function test19_outgoingLanguageBypass() {
+  console.log("\n[19] outgoing language gate => target-language text skips bridge, Chinese still translates");
+  const directSamples = ["1", "hi", "warp stone ready", "https://deadlock.wiki", "gg 1v1?"];
+  for (const sample of directSamples) {
+    const env = freshEnv(Object.assign({}, CFG.outgoingTranslation, { outgoingTarget: "en" }));
+    const input = env.contextPanel.FindChildTraverse("ChatInput");
+    const bridgeBefore = env.bridgeRequests.length;
+    input.text = sample;
+    env.dispatchLog.length = 0;
+    globalThis.LCTOnChatSubmit();
+    const submits = env.dispatchLog.filter((d) => d.name === "CitadelChatInputSubmitted");
+    assert("direct send without translation: " + sample,
+      submits.length === 1 && submits[0].text === sample && env.bridgeRequests.length === bridgeBefore,
+      "submits=" + submits.length + " text=" + (submits[0] && submits[0].text) + " bridge=" + env.bridgeRequests.length);
+  }
+
+  for (const sample of ["你好", "seven 来抓人"]) {
+    const env = freshEnv(Object.assign({}, CFG.outgoingTranslation, { outgoingTarget: "en" }));
+    const input = env.contextPanel.FindChildTraverse("ChatInput");
+    input.text = sample;
+    env.dispatchLog.length = 0;
+    globalThis.LCTOnChatSubmit();
+    const submits = env.dispatchLog.filter((d) => d.name === "CitadelChatInputSubmitted");
+    assert("Chinese content still waits for translation: " + sample, submits.length === 0, "count=" + submits.length);
+  }
+}
+
 async function main() {
   console.log("=== Babel Tower lingua_chat simulation tests v7 (bridge must run on 8791) ===");
   if (process.argv.includes("--chat-input-only")) {
     await test18_outgoingClosesChatImmediately();
+    await test19_outgoingLanguageBypass();
     console.log("\n=== RESULT: PASS " + passCount + " / FAIL " + failCount + " ===");
     process.exit(failCount === 0 ? 0 : 1);
   }
@@ -586,6 +628,7 @@ async function main() {
   await test16_entryBlurDropsFocusOnEntryItself();
   await test17_entryEscReleasesFocusThenClosesPanel();
   await test18_outgoingClosesChatImmediately();
+  await test19_outgoingLanguageBypass();
   console.log("\n=== RESULT: PASS " + passCount + " / FAIL " + failCount + " ===");
   process.exit(failCount === 0 ? 0 : 1);
 }
