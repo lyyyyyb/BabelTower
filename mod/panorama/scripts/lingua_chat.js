@@ -2151,6 +2151,26 @@ function injectTranslation(row, sig, text) {
     return "CitadelChatInputSubmitted";
   }
 
+  function blurEventName() {
+    try {
+      if (findChild(getRoot(), CHAT_LINES_PANEL_ID)) return "CitadelChatTextBlur";
+    } catch (e) {}
+    return "CitadelChatInputBlur";
+  }
+
+  // 发送前翻译是异步的,但聊天框必须像原版一样在按下 Enter 后立即关闭。
+  // 同时释放 TextEntry 焦点,结束中文输入法组合状态,避免下次 Backspace 被旧状态吞掉。
+  function closeChatInput(input) {
+    input = input || State.input || findChild(getRoot(), CHAT_INPUT_ID);
+    if (!input) return;
+    try { $.DispatchEvent(blurEventName(), input); } catch (e) {
+      log("chat blur dispatch failed: " + (e && e.message ? e.message : String(e)));
+    }
+    try { $.DispatchEvent("DropInputFocus", input); } catch (e) {
+      log("chat focus release failed: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+
   function triggerStockSubmit(input) {
     try {
       if (!input || !input.text) input = State.input || findChild(getRoot(), CHAT_INPUT_ID);
@@ -2187,6 +2207,7 @@ function injectTranslation(row, sig, text) {
     // /tr 命令:打开设置面板,不发送
     if (trimmed === "/tr" || trimmed.indexOf("/tr ") === 0) {
       clearInput();
+      closeChatInput(input);
       openSettingsPanel();
       return;
     }
@@ -2197,6 +2218,7 @@ function injectTranslation(row, sig, text) {
       const testText = trimmed.length > 9 ? trimmed.slice(9).trim() : "hello can you push mid";
       injectHudTestMessage(testText);
       clearInput();
+      closeChatInput(input);
       return;
     }
 
@@ -2209,11 +2231,14 @@ function injectTranslation(row, sig, text) {
       // 不同文本则排队(前一文本的翻译结果已提交,不冲突)
       if (State.outgoingPending === trimmed) {
         log("outgoing dedupe: same text pending, ignored: " + trimmed.slice(0, 40));
+        clearInput();
+        closeChatInput(input);
         return;
       }
       State.outgoingPending = trimmed;
-      // 立即清空输入框:视觉反馈"已发送",不再误以为没发出去而重复按键
+      // 立即清空并退出聊天:翻译在后台继续,界面与中文输入法恢复原版行为。
       clearInput();
+      closeChatInput(input);
       translateOutgoing(trimmed, function (translated, detected) {
         State.outgoingPending = null;
         let send = trimmed;
@@ -2396,11 +2421,7 @@ function injectTranslation(row, sig, text) {
       try { $.DispatchEvent("DropInputFocus", entry); } catch (e) {}
     }
     // 2) 走原版 ChatInput 失焦路径:对原版 ChatInput 面板派发引擎事件 → 键盘回游戏
-    const chatInput = State.input || findChild(getRoot(), CHAT_INPUT_ID);
-    if (chatInput) {
-      try { $.DispatchEvent("CitadelChatInputBlur", chatInput); } catch (e) {}
-      try { $.DispatchEvent("DropInputFocus", chatInput); } catch (e) {}
-    }
+    closeChatInput(State.input || findChild(getRoot(), CHAT_INPUT_ID));
     // 注意: 不要 SetFocus 到 settings panel —— 那会把键盘焦点留在 UI, 游戏收不到按键
   }
 

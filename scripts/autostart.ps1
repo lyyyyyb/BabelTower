@@ -37,23 +37,15 @@ function Clear-ApprovedFlag {
 }
 
 if ($Action -eq "Install") {
-  $Node = Join-Path $Root "portable-node\node.exe"
-  if (-not (Test-Path $Node)) { $Node = "node" }
   $Server = Join-Path $Root "core\bridge_server.js"
   if (-not (Test-Path $Server)) { throw "找不到桥服务器: $Server" }
-
-  # 生成无窗口启动脚本(第 2 个参数 0 = 隐藏窗口)
-  # 引号规则:VBScript 中 "" 表示一个字面引号;两个路径之间必须是 2引号+空格+2引号
-  $vbs = 'Set sh = CreateObject("WScript.Shell")' + "`r`n"
-  $vbs += 'sh.Run """' + $Node + '"" ""' + $Server + '""", 0, False' + "`r`n"
-  [System.IO.File]::WriteAllText($VbsPath, $vbs, (New-Object System.Text.UTF8Encoding($false)))
+  if (-not (Test-Path $VbsPath)) { throw "找不到无窗口启动脚本: $VbsPath" }
 
   # 注册到 HKCU Run(wscript 静默执行 vbs)
   Set-ItemProperty -Path $RunKey -Name $ValueName -Value ('"' + (Join-Path $env:WINDIR "System32\wscript.exe") + '" "' + $VbsPath + '"')
   # 关键:清掉安全软件/任务管理器写入的"禁用标记"(联想电脑管家等禁用启动项后,
   # Run 键值仍在但 StartupApproved 标记禁用 → 开机不启动,且脚本重装"设置不回去")
   Clear-ApprovedFlag
-  $installed = (Get-ItemProperty -Path $RunKey -Name $ValueName).$ValueName
   $installed = (Get-ItemProperty -Path $RunKey -Name $ValueName).$ValueName
   Write-Host "已注册开机自启(Run 键): $installed"
   Write-Host "vbs 位置: $VbsPath"

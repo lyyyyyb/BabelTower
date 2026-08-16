@@ -541,8 +541,33 @@ async function test17_entryEscReleasesFocusThenClosesPanel() {
     !env.contextPanel._focused, "root focused=" + env.contextPanel._focused);
 }
 
+async function test18_outgoingClosesChatImmediately() {
+  console.log("\n[18] outgoing translation => chat closes immediately before API result");
+  const env = freshEnv(Object.assign({}, CFG.outgoingTranslation, { outgoingTarget: "en" }));
+  const input = env.contextPanel.FindChildTraverse("ChatInput");
+  input.text = "老七没大别在裂隙打架";
+  env.dispatchLog.length = 0;
+
+  globalThis.LCTOnChatSubmit();
+
+  const blurEvt = env.dispatchLog.filter((d) => d.name === "CitadelChatInputBlur");
+  const drops = env.dispatchLog.filter((d) => d.name === "DropInputFocus");
+  const submits = env.dispatchLog.filter((d) => d.name === "CitadelChatInputSubmitted");
+  assert("input cleared immediately", input.text === "", JSON.stringify(input.text));
+  assert("stock chat blur dispatched immediately", blurEvt.length === 1 && blurEvt[0].target === input,
+    "count=" + blurEvt.length);
+  assert("input focus dropped immediately (resets IME composition)", drops.some((d) => d.target === input),
+    "count=" + drops.length);
+  assert("translated submit waits for API result", submits.length === 0, "count=" + submits.length);
+}
+
 async function main() {
   console.log("=== Babel Tower lingua_chat simulation tests v7 (bridge must run on 8791) ===");
+  if (process.argv.includes("--chat-input-only")) {
+    await test18_outgoingClosesChatImmediately();
+    console.log("\n=== RESULT: PASS " + passCount + " / FAIL " + failCount + " ===");
+    process.exit(failCount === 0 ? 0 : 1);
+  }
   await test1_injectAndCollapse();
   await test2_recycleToChineseQuickChat();
   await test3_recycleToAnotherEnglish();
@@ -560,6 +585,7 @@ async function main() {
   await test15_bridgeUpDotGreen();
   await test16_entryBlurDropsFocusOnEntryItself();
   await test17_entryEscReleasesFocusThenClosesPanel();
+  await test18_outgoingClosesChatImmediately();
   console.log("\n=== RESULT: PASS " + passCount + " / FAIL " + failCount + " ===");
   process.exit(failCount === 0 ? 0 : 1);
 }

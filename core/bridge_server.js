@@ -244,6 +244,7 @@ async function runTranslate(cfg, payload) {
       endpoint: providerCfg.endpoint,
       baseUrl: providerCfg.baseUrl,
       model: providerCfg.model,
+      context: providerCfg.context,
     }));
     return Object.assign(result, { provider: provider.id });
   } catch (e) {
@@ -516,6 +517,8 @@ server.on("error", (e) => {
 });
 
 server.listen(PORT, HOST, () => {
+  const providerConfig = cfg[cfg.provider] || {};
+  const keyStatus = cfg.provider === "bing" ? "not required" : String(!!providerConfig.apiKey);
   log("info", "Babel Tower bridge listening on http://" + HOST + ":" + PORT);
-  log("info", "provider: " + cfg.provider + ", target: " + cfg.defaults.targetLanguage + " (key set: " + (!!(cfg.microsoft && cfg.microsoft.apiKey)) + ")");
+  log("info", "provider: " + cfg.provider + ", target: " + cfg.defaults.targetLanguage + " (key set: " + keyStatus + ")");
 });

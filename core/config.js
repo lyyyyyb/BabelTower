@@ -20,6 +20,7 @@ const DEFAULTS = {
     apiKey: "",
     baseUrl: "https://api.openai.com/v1",
     model: "gpt-4o-mini",
+    context: "Deadlock only: 魂魄/经济=souls, 补魂/稳获=secure, 反补=deny, 步兵/小兵=trooper, 卫士/一塔=guardian, 机甲/二塔=walker, 守护神/基地=patron, 圣坛头目/boss=mid boss, 复生石/重生=rejuv, 灵瓮/运瓮=urn, 灵活栏位=flex slot, 绿路/蓝路/黄路/紫路=color lane, 裂隙=rift, 拆/推目标=take/push, 元灵=spirit.",
   },
   deepl: {
     apiKey: "",
@@ -37,8 +38,8 @@ const DEFAULTS = {
     enabled: true,
     dir: "logs/chat",
   },
-  // 自己的发言也翻译(面板开关,经桥持久化)
-  translateOwn: true,
+  // 自己的发言默认不回译;发送前翻译由 ui.outgoing 独立控制
+  translateOwn: false,
   defaults: {
     sourceLanguage: "auto",
     targetLanguage: "zh-Hans",
@@ -226,6 +227,7 @@ function applyMaskedUpdate(current, incoming) {
     }
     if (typeof oa.baseUrl === "string" && oa.baseUrl) cfg.openai.baseUrl = oa.baseUrl;
     if (typeof oa.model === "string" && oa.model) cfg.openai.model = oa.model;
+    if (typeof oa.context === "string") cfg.openai.context = oa.context;
   }
   if (incoming.deepl) {
     const dl = incoming.deepl;
