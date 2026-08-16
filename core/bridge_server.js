@@ -24,6 +24,7 @@
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const { execFile } = require("child_process");
 
 const configStore = require("./config");
@@ -40,14 +41,17 @@ const MAX_TEXT_CHARS = 4000; // 单条聊天文本长度上限
 // 聊天场景重复度高(gg/glhf/thanks 等高频短语),缓存命中直接返回,零网络开销。
 const TRANS_CACHE_LIMIT = 500;
 const TRANS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 分钟,覆盖整局对局
+const TRANS_CACHE_PROFILE = "deadlock-v2";
 const transCache = new Map(); // key: text + target -> { translation, detectedLanguage, ts }
 
-function cacheKey(text, target) {
-  return String(text).toLowerCase().slice(0, 200) + "\x00" + String(target || "").toLowerCase();
+function cacheKey(text, target, scope) {
+  return crypto.createHash("sha256")
+    .update(TRANS_CACHE_PROFILE + "\x00" + String(scope || "") + "\x00" + String(target || "").toLowerCase() + "\x00" + String(text).toLowerCase())
+    .digest("hex");
 }
 
-function transCacheGet(text, target) {
-  const key = cacheKey(text, target);
+function transCacheGet(text, target, scope) {
+  const key = cacheKey(text, target, scope);
   const hit = transCache.get(key);
   if (!hit) return null;
   if (Date.now() - hit.ts > TRANS_CACHE_TTL_MS) {
@@ -57,12 +61,12 @@ function transCacheGet(text, target) {
   return hit;
 }
 
-function transCacheSet(text, target, translation, detectedLanguage) {
+function transCacheSet(text, target, translation, detectedLanguage, scope) {
   if (transCache.size >= TRANS_CACHE_LIMIT) {
     const oldestKey = transCache.keys().next().value;
     if (oldestKey !== undefined) transCache.delete(oldestKey);
   }
-  transCache.set(cacheKey(text, target), {
+  transCache.set(cacheKey(text, target, scope), {
     translation: translation,
     detectedLanguage: detectedLanguage,
     ts: Date.now(),
@@ -224,13 +228,14 @@ async function runTranslate(cfg, payload) {
 
   // 缓存命中:同文本直接返回上次结果(词典未覆盖的长句/短语重复出现时,零网络延迟)
   const targetLang = payload.targetLanguage || cfg.defaults.targetLanguage || "zh-Hans";
-  const cached = transCacheGet(text, targetLang);
+  const providerCfg = (cfg[provider.id] || {});
+  const cacheScope = [provider.id, providerCfg.model || "", providerCfg.baseUrl || providerCfg.endpoint || "", providerCfg.context || ""].join("\x00");
+  const cached = transCacheGet(text, targetLang, cacheScope);
   if (cached) {
     log("info", "cache hit: " + String(text).slice(0, 60).replace(/\s+/g, " "));
     return { translation: cached.translation, detectedLanguage: cached.detectedLanguage, viaCache: true };
   }
 
-  const providerCfg = (cfg[provider.id] || {});
   const baseOpts = {
     sourceLanguage: payload.sourceLanguage || cfg.defaults.sourceLanguage || "auto",
     targetLanguage: payload.targetLanguage || cfg.defaults.targetLanguage || "zh-Hans",
@@ -246,7 +251,7 @@ async function runTranslate(cfg, payload) {
       model: providerCfg.model,
       context: providerCfg.context,
     }));
-    return Object.assign(result, { provider: provider.id });
+    return Object.assign(result, { provider: provider.id, cacheScope });
   } catch (e) {
     errors.push(provider.id + ": " + (e && e.message ? e.message : String(e)));
   }
@@ -269,7 +274,7 @@ async function runTranslate(cfg, payload) {
         model: fc.model,
       }));
       log("info", "fallback -> " + pid + " (primary " + provider.id + " failed: " + (errors[0] || "").slice(0, 80) + ")");
-      return Object.assign(fbResult, { provider: pid, viaFallback: true });
+      return Object.assign(fbResult, { provider: pid, viaFallback: true, cacheScope });
     } catch (e2) {
       errors.push(pid + ": " + (e2 && e2.message ? e2.message : String(e2)));
     }
@@ -382,7 +387,8 @@ async function handleApi(req, res, url, bodyObj) {
           String(bodyObj.text || "").trim(),
           bodyObj.targetLanguage || cfg.defaults.targetLanguage || "zh-Hans",
           result.translation,
-          result.detectedLanguage
+          result.detectedLanguage,
+          result.cacheScope
         );
       }
       // 自适应学习:每次成功翻译都记录(含缓存命中——缓存命中同样是"该文本又出现一次"),

@@ -72,6 +72,16 @@ const EXACT_CHINESE_CHAT_INTENTS = {
 };
 
 const CHINESE_CHAT_INTENT_PHRASES = {
+  "我说我的意思是这波怪我": "when i said mine i meant my bad",
+  "我说我的意思是这波我的": "when i said mine i meant my bad",
+  "刚才那波怪我": "my bad for that last fight",
+  "刚才那波我的": "my bad for that last fight",
+  "这波怪我": "my bad",
+  "这波我的": "my bad",
+  "你别再梦游了": "wake up",
+  "你别梦游了": "wake up",
+  "别再梦游了": "wake up",
+  "别梦游了": "wake up",
   "你老冯飞了": "your mom can go to hell",
   "你冯飞了": "your mom can go to hell",
   "你在玩你妈呢": "what the fuck are you doing",
@@ -136,6 +146,26 @@ const SAFE_ITEM_ALIASES = {
   "电锤": "Tesla Bullets",
   "金箍棒": "Armor Piercing Rounds",
   "战鼓": "Heroic Aura",
+};
+
+const FALLBACK_MAP_TERMS = {
+  "绿路机甲": "green walker",
+  "蓝路机甲": "blue walker",
+  "黄路机甲": "yellow walker",
+  "紫路机甲": "purple walker",
+  "绿路卫士": "green guardian",
+  "蓝路卫士": "blue guardian",
+  "黄路卫士": "yellow guardian",
+  "紫路卫士": "purple guardian",
+  "圣坛头目": "mid boss",
+  "复生石": "rejuv",
+  "灵瓮": "urn",
+  "裂隙": "rift",
+  "灵活栏位": "flex slot",
+  "绿路": "green lane",
+  "蓝路": "blue lane",
+  "黄路": "yellow lane",
+  "紫路": "purple lane",
 };
 
 function parseLocalization(filePath) {
@@ -243,7 +273,8 @@ function buildItemTerms(localizationRoot) {
 const localizationRoot = findLocalizationRoot();
 const heroTerms = buildHeroTerms(localizationRoot);
 const itemTerms = buildItemTerms(localizationRoot);
-const replacements = new Map(itemTerms);
+const replacements = new Map(Object.entries(FALLBACK_MAP_TERMS));
+for (const [source, target] of itemTerms) replacements.set(source, target);
 for (const [source, target] of heroTerms) replacements.set(source, target);
 const sortedReplacements = [...replacements.entries()].sort((a, b) => [...b[0]].length - [...a[0]].length);
 const sortedIntentPhrases = Object.entries(CHINESE_CHAT_INTENT_PHRASES)
@@ -289,6 +320,60 @@ function buildChineseOutputTerms() {
 
 const chineseOutputTerms = buildChineseOutputTerms();
 
+function buildEnglishInputTerms() {
+  const terms = new Map([
+    ["green walker", "绿路机甲"],
+    ["blue walker", "蓝路机甲"],
+    ["yellow walker", "黄路机甲"],
+    ["purple walker", "紫路机甲"],
+    ["green guardian", "绿路卫士"],
+    ["blue guardian", "蓝路卫士"],
+    ["yellow guardian", "黄路卫士"],
+    ["purple guardian", "紫路卫士"],
+    ["green lane", "绿路"],
+    ["blue lane", "蓝路"],
+    ["yellow lane", "黄路"],
+    ["purple lane", "紫路"],
+    ["mid boss", "圣坛头目"],
+    ["rejuvenator", "复生石"],
+    ["rejuv", "复生石"],
+    ["flex slot", "灵活栏位"],
+    ["guardian", "卫士"],
+    ["walker", "机甲"],
+    ["patron", "守护神"],
+    ["trooper", "步兵"],
+    ["souls", "魂魄"],
+    ["soul", "魂魄"],
+    ["rift", "裂隙"],
+    ["urn", "灵瓮"],
+    ["my bad", "我的锅"],
+  ]);
+  for (const [englishName, chineseName] of Object.entries(HERO_ZH)) {
+    terms.set(normalizeCleanEnglishTerm(englishName), chineseName);
+  }
+  terms.set("mokrill", "莫克双雄");
+  terms.set("mo krill", "莫克双雄");
+  for (const [chineseName, englishName] of itemTerms) {
+    const key = normalizeCleanEnglishTerm(englishName);
+    if (key && !terms.has(key)) terms.set(key, chineseName);
+  }
+  return [...terms.entries()].sort((a, b) => b[0].length - a[0].length);
+}
+
+const englishInputTerms = buildEnglishInputTerms();
+
+function replaceEnglishTermsForChinese(text) {
+  let result = String(text || "");
+  for (const [source, target] of englishInputTerms) {
+    const words = source.split(/\s+/).filter(Boolean).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    if (!words.length) continue;
+    const phrase = words.join("[\\s_-]+");
+    const pattern = new RegExp("(^|[^a-z0-9])" + phrase + "(?=$|[^a-z0-9])", "gi");
+    result = result.replace(pattern, (match, prefix) => prefix + target);
+  }
+  return result.replace(/\s+/g, " ").trim();
+}
+
 function isAliasBoundary(char) {
   return !char || /[\s,，.。!！?？;；:：/\\()\[\]{}]/u.test(char);
 }
@@ -296,8 +381,8 @@ function isAliasBoundary(char) {
 function replaceContextualSingleHeroAliases(text) {
   let result = text;
   const leftContext = /[帮抓打杀看找跟保救压防守推拆秒]/u;
-  const rightContext = /[你在去来有没死残大上中下回跑抓杀打推守拆出买带玩跟肥]/u;
-  const leftPhrases = ["对面", "敌方", "我方", "队友", "这个", "那个"];
+  const rightContext = /[你在去来有没死残大上中下回跑抓杀打推守拆出买带玩跟肥和与也又都被把给就还却但或]/u;
+  const leftPhrases = ["对面", "敌方", "我方", "队友", "这个", "那个", "以为", "觉得", "看见", "看到", "发现", "知道", "听说", "盯着", "针对", "对付"];
   for (const [alias, target] of Object.entries(CONTEXTUAL_SINGLE_HERO_ALIASES)) {
     result = result.replace(new RegExp(alias, "gu"), (match, offset, fullText) => {
       const left = fullText.slice(Math.max(0, offset - 1), offset);
@@ -313,7 +398,9 @@ function replaceContextualSingleHeroAliases(text) {
 
 function preprocess(text, targetLanguage) {
   let result = String(text || "");
-  if (!/^en(?:-|$)/i.test(String(targetLanguage || ""))) return result;
+  const target = String(targetLanguage || "");
+  if (/^zh(?:-|$)/i.test(target)) return replaceEnglishTermsForChinese(result);
+  if (!/^en(?:-|$)/i.test(target)) return result;
   const exactKey = result.trim().replace(/^[\s,，.。!！?？]+|[\s,，.。!！?？]+$/gu, "");
   if (EXACT_CHINESE_CHAT_INTENTS[exactKey]) return EXACT_CHINESE_CHAT_INTENTS[exactKey];
   for (const [source, target] of sortedIntentPhrases) {
@@ -356,4 +443,4 @@ function getStats() {
   };
 }
 
-module.exports = { preprocess, postprocess, getStats };
+module.exports = { preprocess, postprocess, getStats, replaceEnglishTermsForChinese };

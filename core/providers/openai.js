@@ -120,8 +120,8 @@ function buildMessages(text, opts) {
     "Resolve 我的 by intent: alone or apologizing=my bad, before a noun=my, explicit ownership=mine; never mine for an apology.",
     "When aimed at players, 送 means feeding, 演 means throwing, and 人机 means bot.",
     english
-      ? "Use native English Deadlock calls like walker, patron, rejuv, urn, secure, and deny. Say green walker, not green lane walker."
-      : "Use official Chinese Deadlock names and terms. Translate every English hero, item, and call into Chinese, including rift=裂隙, walker=机甲, and rejuv=复生石.",
+      ? "Use native English Deadlock calls like walker, patron, rejuv, urn, secure, and deny. A color lane means the lane; only a color plus 机甲 means that color walker. Never add walker when the source only says 路."
+      : "Use official Chinese Deadlock names and terms. Chinese hero, item, lane, and objective names already present in the source are protected official terms: copy them exactly and translate only the surrounding text.",
     english
       ? "Keep every named hero, including direct address, and all inserted item or slang wording unchanged."
       : "Keep every named hero, including direct address, but render hero and item names and calls in official Chinese.",

@@ -37,6 +37,7 @@ Write-Host "==> 复制本地桥..."
 Copy-Item (Join-Path $Root "core\bridge_server.js") (Join-Path $Stage "core\")
 Copy-Item (Join-Path $Root "core\config.js") (Join-Path $Stage "core\")
 Copy-Item (Join-Path $Root "core\dictionary.js") (Join-Path $Stage "core\")
+Copy-Item (Join-Path $Root "core\deadlock_terms.js") (Join-Path $Stage "core\")
 # hero_names 由 dictionary.js require, 漏掉会导致桥启动崩溃(离线) —— 2026-08-16 用户反馈修复
 Copy-Item (Join-Path $Root "core\hero_names.js") (Join-Path $Stage "core\")
 Copy-Item (Join-Path $Root "core\providers\*.js") (Join-Path $Stage "core\providers\")
