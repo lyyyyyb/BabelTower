@@ -51,6 +51,11 @@
   const SETTINGS_BUTTON_ID = "LCTSettingsButton";
   const SETTINGS_PANEL_ID = "LCTSettingsPanel";
   const SETTINGS_VISIBLE_CLASS = "LCTVisible";
+  const ESC_SUB_OPTIONS_ID = "SubOptions";
+  const ESC_SETTINGS_ROW_ID = "LCTEscapeSettingsRow";
+  const ESC_SETTINGS_BUTTON_ID = "LCTEscapeSettingsButton";
+  const ESC_SETTINGS_GEAR_ID = "LCTEscapeSettingsGearIcon";
+  const ESC_SETTINGS_BACKDROP_ID = "LCTEscapeSettingsBackdrop";
   const STATUS_LABEL_ID = "LCTStatusLabel";
   const TRANS_LABEL_CLASS = "LCTTranslation";
   const TRANS_ERROR_CLASS = "LCTTranslationError";
@@ -63,6 +68,7 @@
   const BOOTSTRAP_TAIL_SCAN_LIMIT = 24; // 首次只扫末尾,避免翻历史
   const LOW_LATENCY_TAIL_SCAN_LIMIT = 6; // 每次额外扫末尾,保证低延迟
   const TITLE_POLL_SECONDS = 0.1;
+  const ESC_BUTTON_POLL_SECONDS = 0.8;
   const BRIDGE_ALIVE_SECONDS = 1.5; // 桥页面存活标记的等待上限
   const RETRY_LIMIT = 2; // 每条消息最多尝试次数(含首次)
   const RETRY_DELAY_SECONDS = 0.4;
@@ -128,6 +134,10 @@
     nickInfoCache: null, // 昵称 -> { hero, heroId, steamid }(Players API 匹配缓存)
     recentLogs: new Map(), // 最近完整日志文本(去重 HUD 重复/未填充条目)
     pendingLogs: {}, // 挂起的未填充完整日志:文本\x00isOwn -> { entry, t }
+    settingsHome: null, // ESC 菜单打开设置时,保存面板原父级以便关闭后还原
+    settingsBackdrop: null,
+    escapeSettingsButton: null,
+    openedFromEscape: false,
   };
 
   // ================= 工具函数 =================
@@ -210,6 +220,11 @@
     let root = $.GetContextPanel();
     while (root && root.GetParent && root.GetParent()) root = root.GetParent();
     return root;
+  }
+
+  function getSettingsPanel() {
+    const context = $.GetContextPanel();
+    return findChild(context, SETTINGS_PANEL_ID) || findChild(getRoot(), SETTINGS_PANEL_ID);
   }
 
   // 收集面板下所有 Label 文本(处理 Text/Ping 等不同 contents 结构)
@@ -2343,8 +2358,82 @@ function injectTranslation(row, sig, text) {
     }
   }
 
+  function ensureEscapeSettingsButton() {
+    const root = getRoot();
+    const subOptions = findChild(root, ESC_SUB_OPTIONS_ID);
+    if (!subOptions) {
+      if (State.openedFromEscape) closeSettingsPanel();
+      return;
+    }
+
+    const existing = findChild(subOptions, ESC_SETTINGS_BUTTON_ID);
+    if (existing) {
+      State.escapeSettingsButton = existing;
+      return;
+    }
+    if (typeof $.CreatePanel !== "function") return;
+
+    try {
+      const row = $.CreatePanel("Panel", subOptions, ESC_SETTINGS_ROW_ID);
+      row.AddClass("SettingsRow");
+
+      const button = $.CreatePanel("Button", row, ESC_SETTINGS_BUTTON_ID);
+      button.AddClass("nav_menu_item");
+      button.AddClass("minor");
+      button.SetPanelEvent("onactivate", openSettingsFromEscape);
+
+      const label = $.CreatePanel("Label", button, "");
+      label.text = "BABEL TOWER";
+      label.AddClass("menuButtonLabel");
+
+      const gear = $.CreatePanel("Panel", button, ESC_SETTINGS_GEAR_ID);
+      gear.AddClass("smallIcon");
+      gear.AddClass("GearIcon");
+
+      const nativeSettings = findChild(subOptions, "settings");
+      const nativeRow = nativeSettings && nativeSettings.GetParent ? nativeSettings.GetParent() : null;
+      if (nativeRow && typeof subOptions.MoveChildBefore === "function") {
+        subOptions.MoveChildBefore(row, nativeRow);
+      }
+      State.escapeSettingsButton = button;
+      log("ESC settings button injected");
+    } catch (e) {
+      log("ESC settings button failed: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  function openSettingsFromEscape() {
+    const root = getRoot();
+    const panel = getSettingsPanel();
+    if (!panel) return;
+
+    let backdrop = findChild(root, ESC_SETTINGS_BACKDROP_ID);
+    try {
+      if (!backdrop && typeof $.CreatePanel === "function") {
+        backdrop = $.CreatePanel("Panel", root, ESC_SETTINGS_BACKDROP_ID);
+        backdrop.AddClass("LCTEscapeSettingsBackdrop");
+        backdrop.hittest = true;
+        backdrop.hittestchildren = true;
+        backdrop.SetPanelEvent("onactivate", function () {});
+      }
+      if (!backdrop) return;
+
+      State.settingsHome = panel.GetParent ? panel.GetParent() : null;
+      State.settingsBackdrop = backdrop;
+      State.openedFromEscape = true;
+      if (typeof panel.SetParent === "function") panel.SetParent(backdrop);
+      openSettingsPanel();
+      log("settings opened from ESC menu");
+    } catch (e) {
+      State.settingsHome = null;
+      State.settingsBackdrop = null;
+      State.openedFromEscape = false;
+      log("ESC settings open failed: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+
   function openSettingsPanel() {
-    const panel = findChild(getRoot(), SETTINGS_PANEL_ID);
+    const panel = getSettingsPanel();
     if (!panel) return;
     try {
       panel.AddClass(SETTINGS_VISIBLE_CLASS);
@@ -2411,11 +2500,29 @@ function injectTranslation(row, sig, text) {
   }
 
   function closeSettingsPanel() {
-    const panel = findChild(getRoot(), SETTINGS_PANEL_ID);
+    const panel = getSettingsPanel();
     if (panel) {
       try {
         panel.RemoveClass(SETTINGS_VISIBLE_CLASS);
       } catch (e) {}
+    }
+    if (State.openedFromEscape) {
+      const home = State.settingsHome;
+      const backdrop = State.settingsBackdrop;
+      const returnButton = State.escapeSettingsButton;
+      try {
+        if (panel && isValid(home) && typeof panel.SetParent === "function") panel.SetParent(home);
+      } catch (e) {}
+      try {
+        if (isValid(backdrop) && typeof backdrop.DeleteAsync === "function") backdrop.DeleteAsync(0.0);
+      } catch (e) {}
+      State.settingsHome = null;
+      State.settingsBackdrop = null;
+      State.openedFromEscape = false;
+      try {
+        if (isValid(returnButton) && typeof returnButton.SetFocus === "function") returnButton.SetFocus();
+      } catch (e) {}
+      return;
     }
     // 注意:不要在这里 SetFocus(root)!!
     // root 是 HUD 根面板, SetFocus 后键盘焦点被 UI 层吃掉, 游戏收不到按键
@@ -2424,7 +2531,7 @@ function injectTranslation(row, sig, text) {
   }
 
   function LCTToggleSettings() {
-    const panel = findChild(getRoot(), SETTINGS_PANEL_ID);
+    const panel = getSettingsPanel();
     if (panel && hasClass(panel, SETTINGS_VISIBLE_CLASS)) closeSettingsPanel();
     else openSettingsPanel();
   }
@@ -2442,6 +2549,8 @@ function injectTranslation(row, sig, text) {
   // V4 失败原因:把 CitadelChatInputBlur 派发到了我们自己的 entry(非 ChatInput) → 引擎不认识,静默忽略
   // entry 由 XML onblur="LCTEntryBlur(this)" 显式传入 = 触发事件的 TextEntry 面板
   function LCTEntryBlur(entry) {
+    // ESC 菜单本身负责鼠标和键盘焦点;这里再走聊天框失焦链路会把设置输入框抢掉。
+    if (State.openedFromEscape) return;
     // 1) 释放我们 TextEntry 的输入焦点 → 鼠标恢复
     if (entry) {
       try { $.DispatchEvent("DropInputFocus", entry); } catch (e) {}
@@ -2465,13 +2574,13 @@ function injectTranslation(row, sig, text) {
   }
 
   function fieldValue(id) {
-    const panel = findChild(getRoot(), SETTINGS_PANEL_ID);
+    const panel = getSettingsPanel();
     const field = panel ? findChild(panel, id) : null;
     return field ? safeText(field) : "";
   }
 
   function setFieldText(id, text) {
-    const panel = findChild(getRoot(), SETTINGS_PANEL_ID);
+    const panel = getSettingsPanel();
     const field = panel ? findChild(panel, id) : null;
     if (field) {
       try {
@@ -2507,7 +2616,7 @@ function injectTranslation(row, sig, text) {
   }
 
   function setSelectText(buttonId, text) {
-    const panel = findChild(getRoot(), SETTINGS_PANEL_ID);
+    const panel = getSettingsPanel();
     const btn = panel ? findChild(panel, buttonId) : null;
     const label = btn ? findChild(btn, buttonId + "Label") : null;
     if (label) {
@@ -2573,7 +2682,7 @@ function injectTranslation(row, sig, text) {
   // API Key / 区域行显隐已按用户意见移除(行显隐机制不稳定,且非必需)
 
   function setToggleText(id, on) {
-    const panel = findChild(getRoot(), SETTINGS_PANEL_ID);
+    const panel = getSettingsPanel();
     const toggle = panel ? findChild(panel, id) : null;
     if (!toggle) return;
     // Button 自身不渲染 text,必须更新内嵌 Label(命名约定:<按钮id>Label)
@@ -2863,6 +2972,10 @@ function injectTranslation(row, sig, text) {
     // DMM 用户引导:启动后 12s 桥仍未在线 => 面板显示未运行 + 安装指引
     $.Schedule(12.0, checkBridgeMissing);
     $.Schedule(SLOW_POLL_SECONDS, scanChatMessages);
+    $.Schedule(ESC_BUTTON_POLL_SECONDS, function escapeButtonLoop() {
+      ensureEscapeSettingsButton();
+      $.Schedule(ESC_BUTTON_POLL_SECONDS, escapeButtonLoop);
+    });
     // 桥健康探测(每 5 秒;与翻译请求共用串行队列,量极小不影响翻译)
     $.Schedule(2.0, function healthLoop() {
       healthCheck();

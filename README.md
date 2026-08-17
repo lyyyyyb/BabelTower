@@ -63,6 +63,7 @@ powershell -ExecutionPolicy Bypass -File scripts\autostart.ps1 -Action Install
 
 | 操作 | 说明 |
 | --- | --- |
+| ESC 菜单 → **BABEL TOWER** | 推荐入口；在暂停菜单内打开设置，鼠标焦点更稳定 |
 | 聊天输入 `/tr` 回车 | 打开设置面板(鼠标锁定也能用) |
 | 输入框右侧 **译** 按钮 | 打开设置面板(鼠标可用时) |
 | 设置面板 | 选项均为**点击选择**,改完点**保存**生效;ESC 关闭 |

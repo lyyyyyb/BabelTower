@@ -78,6 +78,31 @@
   visibility: visible;
 }
 
+/* ESC 菜单入口使用运行时注入,避免覆盖 QOL LOCK 或其他暂停菜单 Mod。 */
+.LCTEscapeSettingsBackdrop {
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.72);
+  z-index: 4900;
+  hittest: true;
+  hittestchildren: true;
+}
+
+#LCTEscapeSettingsButton #LCTEscapeSettingsGearIcon {
+  visibility: visible;
+  opacity: 0.35;
+  margin-left: 8px;
+  margin-right: 0px;
+}
+
+#LCTEscapeSettingsButton:hover #LCTEscapeSettingsGearIcon {
+  opacity: 1;
+}
+
+.specials_active #LCTEscapeSettingsRow {
+  visibility: collapse;
+}
+
 /* 标题栏 */
 .LCTSettingsHeader {
   width: 100%;

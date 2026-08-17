@@ -30,6 +30,7 @@ class MockPanel {
     this.__lctProcessed = false;
     this._submits = [];
     this._focused = false;
+    this._events = {};
   }
   IsValid() { return !this._deleted; }
   GetParent() { return this._parent; }
@@ -39,6 +40,22 @@ class MockPanel {
   AddClass(c) { this._classes.add(c); }
   RemoveClass(c) { this._classes.delete(c); }
   SetFocus() { this._focused = true; }
+  SetPanelEvent(name, fn) { this._events[name] = fn; }
+  SetParent(parent) {
+    if (this._parent) {
+      const i = this._parent._children.indexOf(this);
+      if (i >= 0) this._parent._children.splice(i, 1);
+    }
+    this._parent = parent;
+    if (parent && !parent._children.includes(this)) parent._children.push(this);
+  }
+  MoveChildBefore(child, before) {
+    const from = this._children.indexOf(child);
+    const to = this._children.indexOf(before);
+    if (from < 0 || to < 0 || from === to) return;
+    this._children.splice(from, 1);
+    this._children.splice(this._children.indexOf(before), 0, child);
+  }
   GetAttributeString(k, def) { return this._attrs[k] !== undefined ? this._attrs[k] : def; }
   SetAttributeString(k, v) { this._attrs[k] = v; }
   DeleteAsync() {
@@ -575,6 +592,43 @@ async function test18_outgoingClosesChatImmediately() {
   assert("translated submit waits for API result", submits.length === 0, "count=" + submits.length);
 }
 
+async function test20_escapeMenuSettingsKeepsPauseFocus() {
+  console.log("\n[20] ESC menu button => settings overlay stays in pause UI and returns focus to menu");
+  const env = freshEnv(CFG.bilingual);
+  const escapeRoot = env.contextPanel.addChild(new MockPanel("EscapeRoot"));
+  const subOptions = escapeRoot.addChild(new MockPanel("SubOptions"));
+  const nativeRow = subOptions.addChild(new MockPanel("NativeSettingsRow")).setClass("SettingsRow");
+  nativeRow.addChild(new MockPanel("settings"));
+
+  const injectedReady = await waitFor(() => env.contextPanel.FindChildTraverse("LCTEscapeSettingsButton"), 2500);
+  const injected = env.contextPanel.FindChildTraverse("LCTEscapeSettingsButton");
+  assert("BABEL TOWER button injected into ESC SubOptions", injectedReady && !!injected);
+  if (!injectedReady || !injected) return;
+  const row = env.contextPanel.FindChildTraverse("LCTEscapeSettingsRow");
+  assert("Babel row placed before native settings row",
+    subOptions._children.indexOf(row) < subOptions._children.indexOf(nativeRow),
+    subOptions._children.map((p) => p._id));
+
+  injected._events.onactivate();
+  const panel = env.contextPanel.FindChildTraverse("LCTSettingsPanel");
+  const backdrop = env.contextPanel.FindChildTraverse("LCTEscapeSettingsBackdrop");
+  assert("settings panel opened on ESC overlay", !!backdrop && panel.GetParent() === backdrop);
+  assert("settings panel visible", panel.BHasClass("LCTVisible"));
+
+  env.dispatchLog.length = 0;
+  const entry = panel.FindChildTraverse("LCTApiKey");
+  globalThis.LCTEntryBlur(entry);
+  assert("ESC settings input blur does not invoke stock chat focus path",
+    env.dispatchLog.every((d) => d.name !== "CitadelChatInputBlur" && d.name !== "DropInputFocus"),
+    env.dispatchLog.map((d) => d.name));
+
+  globalThis.LCTCloseSettings();
+  assert("closing restores settings panel to its original parent", panel.GetParent() === env.contextPanel);
+  assert("closing removes ESC overlay", !env.contextPanel.FindChildTraverse("LCTEscapeSettingsBackdrop"));
+  assert("closing returns focus to BABEL TOWER menu button", injected._focused);
+  assert("closing keeps settings panel hidden", !panel.BHasClass("LCTVisible"));
+}
+
 async function test19_outgoingLanguageBypass() {
   console.log("\n[19] outgoing language gate => target-language text skips bridge, Chinese still translates");
   const directSamples = ["1", "hi", "warp stone ready", "https://deadlock.wiki", "gg 1v1?"];
@@ -629,6 +683,7 @@ async function main() {
   await test17_entryEscReleasesFocusThenClosesPanel();
   await test18_outgoingClosesChatImmediately();
   await test19_outgoingLanguageBypass();
+  await test20_escapeMenuSettingsKeepsPauseFocus();
   console.log("\n=== RESULT: PASS " + passCount + " / FAIL " + failCount + " ===");
   process.exit(failCount === 0 ? 0 : 1);
 }
