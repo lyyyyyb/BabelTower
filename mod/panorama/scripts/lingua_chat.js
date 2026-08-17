@@ -746,7 +746,10 @@
 
   function isTargetLanguageText(text) {
     const t = String(State.cfg.targetLanguage || "zh-Hans").toLowerCase();
-    if (t.indexOf("zh") === 0) return CJK_RE.test(text);
+    if (t.indexOf("zh") === 0) {
+      // 只有纯中文才跳过。中英混合消息仍需翻译,否则英文部分会原样留下。
+      return CJK_RE.test(text) && !/[A-Za-z]/.test(String(text || ""));
+    }
     return false;
   }
 

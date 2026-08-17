@@ -38,8 +38,8 @@ Babel Tower - Deadlock 聊天翻译 Mod 安装使用说明
   打开方式:聊天输入 /tr 回车;或聊天框右侧"译"按钮
 
   - 启用翻译        总开关(默认开)
-  - 服务商          bing(免Key,默认)/ microsoft(Azure Key,可选)
-  - API Key/区域    仅用 Microsoft 时需要填写
+  - 服务商          openai(兼容接口,推荐)/ bing(免Key)/ microsoft/ deepl/ google
+  - API Key/地址/模型  使用 OpenAI 或中转站时填写,只保存在本机
   - 目标语言        译文语言,下拉选择(默认简体中文)
   - 显示模式        双语(原文+译文)/ 仅译文
   - 发送前翻译      关(发原文)/ 仅译文 / 双语(原文 | 译文)
@@ -56,8 +56,8 @@ Q: 译文显示"本地桥未运行"?
 A: 桥没启动。确认第 3 步做了:要么装了自启(重启电脑后生效),要么双击了 StartDeadlock.bat。
 
 Q: 点测试显示失败?
-A: 先确认桥在运行;再确认网络能访问 bing.com(公共接口,偶尔抽风会自动重试)。
-   一直失败可把服务商切到 microsoft 并填自己的 Azure Key。
+A: 先确认桥在运行,再检查服务商地址、模型名、Key 和额度。中转站偶发 502 时可在
+   config/config.json 的 fallbackProviders 填入已配置的备用服务商,例如 ["bing"]。
 
 Q: 游戏里没反应?
 A: 确认 VPK 装到了 addons 目录且游戏完全重启过;确认 /tr 能打开设置面板。
@@ -79,3 +79,4 @@ A: 游戏部分:Mod Manager 里禁用/删除,或删掉 addons 里对应的 vpk�
   scripts\autostart.ps1  自启脚本(一般由上面的 bat 调用,无需手动执行)
 
 更多说明见 README.md;源代码与构建方法见 GitHub 仓库。
+注意:本 Mod 只翻译 Deadlock 游戏内文字聊天,不处理 Steam 私聊、Discord 或语音。
