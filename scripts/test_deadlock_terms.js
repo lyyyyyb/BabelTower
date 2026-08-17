@@ -4,6 +4,7 @@ const assert = require("assert");
 const path = require("path");
 const openai = require(path.join(__dirname, "..", "core", "providers", "openai"));
 const deadlockTerms = require(path.join(__dirname, "..", "core", "deadlock_terms"));
+const dictionary = require(path.join(__dirname, "..", "core", "dictionary"));
 
 function preparedSource(text, targetLanguage) {
   const messages = openai.buildMessages(text, { targetLanguage: targetLanguage || "en", context: "" });
@@ -80,6 +81,9 @@ assert.strictEqual(deadlockTerms.postprocess("七没有大招别在裂隙打架"
 assert.strictEqual(deadlockTerms.postprocess("infernus出了high velocity rounds", "zh-Hans"), "炽焱出了高速弹");
 assert.strictEqual(deadlockTerms.postprocess("等七秒", "zh-Hans"), "等七秒");
 assert.strictEqual(deadlockTerms.postprocess("seven no ult", "en"), "seven no ult");
+assert.strictEqual(dictionary.lookup("lol!", "zh-Hans").translation, "哈哈");
+assert.strictEqual(dictionary.lookup("WTF?", "zh-Hans").translation, "搞什么鬼");
+assert.strictEqual(dictionary.lookup("...gg...", "zh-Hans").translation, "好局");
 
 const stats = deadlockTerms.getStats();
 assert.ok(stats.heroTerms >= 47, "hero name table did not load");
