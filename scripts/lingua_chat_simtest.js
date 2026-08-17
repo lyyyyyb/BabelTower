@@ -324,13 +324,23 @@ async function test4_bilingualNoCollapse() {
   assert("original stays visible (bilingual)", row.FindChildTraverse("MessageContents").style.visibility === "visible");
 }
 
-async function test5_pingBubbleKept() {
-  console.log("\n[5] english quick chat (Ping) in translation_only: bubble kept + translation appended");
+async function test5_pingSkipped() {
+  console.log("\n[5] native quick chat/Ping: skip translation in chat and duplicate HUD bubble");
   const env = freshEnv(CFG.translationOnly);
   const row = env.addRow("ping", "Carol", "go mid");
-  const ok = await waitFor(() => labelsOf(row).length > 0, 10000);
-  const labels = labelsOf(row);
-  assert("translation label injected", ok && labels.length === 1 && labels[0].text.length > 0, labels[0] && labels[0].text);
+  const hudRow = env.addHudRow("go mid");
+  env.addRow("text", "Dave", "manual chat should translate");
+  await sleep(1800);
+  const matchingRequests = env.bridgeRequests.filter((url) => {
+    try { return new URL(url, "http://x").searchParams.get("text") === "go mid"; } catch (e) { return false; }
+  });
+  assert("quick chat has no translation label", labelsOf(row).length === 0);
+  assert("duplicate HUD bubble has no translation label", hudRow.FindChildrenWithClassTraverse("LCTTranslationHud").length === 0);
+  assert("quick chat sends no translation request", matchingRequests.length === 0, matchingRequests.length + " requests");
+  const manualRequests = env.bridgeRequests.filter((url) => {
+    try { return new URL(url, "http://x").searchParams.get("text") === "manual chat should translate"; } catch (e) { return false; }
+  });
+  assert("manual text chat still sends a translation request", manualRequests.length === 1, manualRequests.length + " requests");
   assert("ping bubble NOT collapsed", row.FindChildTraverse("MessageContents").style.visibility === "visible");
 }
 
@@ -684,6 +694,11 @@ async function test19_outgoingLanguageBypass() {
 
 async function main() {
   console.log("=== Babel Tower lingua_chat simulation tests v7 (bridge must run on 8791) ===");
+  if (process.argv.includes("--quick-chat-only")) {
+    await test5_pingSkipped();
+    console.log("\n=== RESULT: PASS " + passCount + " / FAIL " + failCount + " ===");
+    process.exit(failCount === 0 ? 0 : 1);
+  }
   if (process.argv.includes("--esc-settings-only")) {
     await test20_escapeMenuSettingsKeepsPauseFocus();
     console.log("\n=== RESULT: PASS " + passCount + " / FAIL " + failCount + " ===");
@@ -699,7 +714,7 @@ async function main() {
   await test2_recycleToChineseQuickChat();
   await test3_recycleToAnotherEnglish();
   await test4_bilingualNoCollapse();
-  await test5_pingBubbleKept();
+  await test5_pingSkipped();
   await test6_ownMessageSkipped();
   await test7_consecutiveOutgoing();
   await test8_consecutiveIncoming();

@@ -133,6 +133,7 @@
     matchId: null, // 当前比赛 ID(缓存)
     nickInfoCache: null, // 昵称 -> { hero, heroId, steamid }(Players API 匹配缓存)
     recentLogs: new Map(), // 最近完整日志文本(去重 HUD 重复/未填充条目)
+    recentQuickTexts: new Map(), // 快捷短语/Ping 文本 -> 过期时间,用于跳过 HUD 顶栏的重复气泡
     pendingLogs: {}, // 挂起的未填充完整日志:文本\x00isOwn -> { entry, t }
     settingsHome: null, // ESC 菜单打开设置时,保存面板原父级以便关闭后还原
     settingsBackdrop: null,
@@ -773,11 +774,13 @@
     const text = collectText(contents);
     if (!text) return null;
     const isOwn = hasClass(row, "IsSelf") || !!findClass(row, LOCAL_CLIENT_ID);
+    const quick = hasClass(contents, "Ping") || !!findChild(contents, "PingLabel");
     return {
       sender: sender,
       channel: channel,
       text: text,
       isOwn: isOwn,
+      quick: quick,
       hero: readHeroFromRow(row),
       heroId: readHeroIdFromRow(row),
       steamid: readSteamIdFromRow(row),
@@ -820,10 +823,28 @@
   function shouldSkip(record) {
     const text = record.text;
     if (!text || text.length < 2) return true;
+    if (record.quick) return true; // 游戏原生快捷短语/Ping 已由游戏本地化,不调用翻译接口
+    if (record.hud && isRecentQuickText(text)) return true; // 跳过同一快捷短语在 HUD 顶栏的重复气泡
     if (text.charAt(0) === "/") return true; // 指令消息
     if (/^[\d\s\W_]+$/.test(text)) return true; // 纯数字/符号
     if (record.isOwn && State.cfg.translateOwn === false) return true; // 可配置:默认翻译自己的消息
     if (!State.cfg.force && isTargetLanguageText(text)) return true; // 已为目标语言
+    return false;
+  }
+
+  function rememberQuickText(text) {
+    const now = nowMs();
+    State.recentQuickTexts.set(String(text || ""), now + 5000);
+    for (const [value, expiresAt] of State.recentQuickTexts) {
+      if (expiresAt <= now) State.recentQuickTexts.delete(value);
+    }
+  }
+
+  function isRecentQuickText(text) {
+    const value = String(text || "");
+    const expiresAt = State.recentQuickTexts.get(value) || 0;
+    if (expiresAt > nowMs()) return true;
+    if (expiresAt) State.recentQuickTexts.delete(value);
     return false;
   }
 
@@ -1975,13 +1996,15 @@ function injectTranslation(row, sig, text) {
     if (!isValid(row)) return false;
     const record = readMessageRow(row);
     if (!record) return false;
+    if (record.quick) rememberQuickText(record.text);
     const sig = makeSignature(record);
+    const skipTranslation = shouldSkip(record);
 
     // 已处理过的行:若签名变化说明被回收复用,重置处理状态
     const prevSig = row.__lctSig;
     if (row.__lctProcessed && prevSig === sig) {
       // 尝试从缓存恢复译文(聊天滚动回收场景)
-      if (State.cache.has(sig)) restoreFromCache(row, sig);
+      if (!skipTranslation && State.cache.has(sig)) restoreFromCache(row, sig);
       return false;
     }
     if (prevSig !== sig) {
@@ -1992,7 +2015,7 @@ function injectTranslation(row, sig, text) {
     row.__lctProcessed = true;
 
     if (State.seen.has(sig)) {
-      if (State.cache.has(sig)) restoreFromCache(row, sig);
+      if (!skipTranslation && State.cache.has(sig)) restoreFromCache(row, sig);
       // 测试行:相同文本也强制重新翻译(seen 去重会吞掉重复测试)
       if (row.__lctTestForce) {
         State.seen.delete(sig);
@@ -2011,7 +2034,7 @@ function injectTranslation(row, sig, text) {
     // 聊天日志采集(所有新消息都记,不随 shouldSkip 过滤——指令/自己的消息也要留档)
     pushChatLog(record);
 
-    if (shouldSkip(record)) return false;
+    if (skipTranslation) return false;
     if (State.cache.has(sig)) {
       injectTranslation(row, sig, State.cache.get(sig).translation);
       return false;
