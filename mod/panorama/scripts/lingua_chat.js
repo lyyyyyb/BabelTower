@@ -137,6 +137,7 @@
     settingsHome: null, // ESC 菜单打开设置时,保存面板原父级以便关闭后还原
     settingsBackdrop: null,
     escapeSettingsButton: null,
+    escapeMenuRoot: null,
     openedFromEscape: false,
   };
 
@@ -225,6 +226,34 @@
   function getSettingsPanel() {
     const context = $.GetContextPanel();
     return findChild(context, SETTINGS_PANEL_ID) || findChild(getRoot(), SETTINGS_PANEL_ID);
+  }
+
+  function isPanelTreeVisible(panel) {
+    if (!isValid(panel)) return false;
+    let node = panel;
+    let guard = 0;
+    while (isValid(node) && guard < 48) {
+      try {
+        if (node.visible === false) return false;
+      } catch (e) {}
+      try {
+        if (node.style && node.style.visibility === "collapse") return false;
+      } catch (e) {}
+      node = node.GetParent ? node.GetParent() : null;
+      guard += 1;
+    }
+    return true;
+  }
+
+  function findEscapeMenuRoot(subOptions) {
+    let node = subOptions;
+    let guard = 0;
+    while (isValid(node) && guard < 16) {
+      if (findChild(node, "EscapeBackground")) return node;
+      node = node.GetParent ? node.GetParent() : null;
+      guard += 1;
+    }
+    return null;
   }
 
   // 收集面板下所有 Label 文本(处理 Text/Ping 等不同 contents 结构)
@@ -2361,6 +2390,10 @@ function injectTranslation(row, sig, text) {
   function ensureEscapeSettingsButton() {
     const root = getRoot();
     const subOptions = findChild(root, ESC_SUB_OPTIONS_ID);
+    if (State.openedFromEscape && !isPanelTreeVisible(State.escapeMenuRoot)) {
+      closeSettingsPanel();
+      return;
+    }
     if (!subOptions) {
       if (State.openedFromEscape) closeSettingsPanel();
       return;
@@ -2402,10 +2435,51 @@ function injectTranslation(row, sig, text) {
     }
   }
 
+  function centerSettingsPanel(panel) {
+    if (!panel || !panel.style) return;
+    try { panel.style.align = "center center"; } catch (e) {}
+    try { panel.style.position = "0px 0px 0px"; } catch (e) {}
+    try { panel.style.x = "0px"; } catch (e) {}
+    try { panel.style.y = "0px"; } catch (e) {}
+  }
+
+  function setupSettingsDragging(panel) {
+    const header = findClass(panel, "LCTSettingsHeader");
+    if (!header || header.__lctDragBound) return;
+    if (typeof header.SetDraggable !== "function" || typeof $.RegisterEventHandler !== "function") return;
+
+    try {
+      header.SetDraggable(true);
+      $.RegisterEventHandler("DragStart", header, function (_source, dragEvent) {
+        if (!isValid(panel) || !dragEvent) return;
+        const x = Number(panel.actualxoffset);
+        const y = Number(panel.actualyoffset);
+        if (isFinite(x) && isFinite(y)) {
+          try { panel.style.position = Math.round(x) + "px " + Math.round(y) + "px 0px"; } catch (e) {}
+        }
+        try { panel.style.align = "left top"; } catch (e) {}
+        dragEvent.displayPanel = panel;
+        dragEvent.removePositionBeforeDrop = false;
+      });
+      $.RegisterEventHandler("DragEnd", header, function (_source, droppedPanel) {
+        const moved = isValid(droppedPanel) ? droppedPanel : panel;
+        if (State.settingsBackdrop && isValid(State.settingsBackdrop) && moved.GetParent && moved.GetParent() !== State.settingsBackdrop) {
+          try { moved.SetParent(State.settingsBackdrop); } catch (e) {}
+        }
+        try { moved.style.align = "left top"; } catch (e) {}
+      });
+      header.__lctDragBound = true;
+    } catch (e) {
+      log("settings drag setup failed: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+
   function openSettingsFromEscape() {
     const root = getRoot();
     const panel = getSettingsPanel();
     if (!panel) return;
+    const subOptions = findChild(root, ESC_SUB_OPTIONS_ID);
+    const escapeMenuRoot = findEscapeMenuRoot(subOptions);
 
     let backdrop = findChild(root, ESC_SETTINGS_BACKDROP_ID);
     try {
@@ -2415,18 +2489,30 @@ function injectTranslation(row, sig, text) {
         backdrop.hittest = true;
         backdrop.hittestchildren = true;
         backdrop.SetPanelEvent("onactivate", function () {});
+        backdrop.SetPanelEvent("oncancel", closeSettingsPanel);
       }
       if (!backdrop) return;
 
+      try { backdrop.style.width = "100%"; } catch (e) {}
+      try { backdrop.style.height = "100%"; } catch (e) {}
+      try { backdrop.style.align = "center center"; } catch (e) {}
+      try { backdrop.style.position = "0px 0px 0px"; } catch (e) {}
+      try { backdrop.style.backgroundColor = "rgba(0, 0, 0, 0.72)"; } catch (e) {}
+      try { backdrop.style.zIndex = "4900"; } catch (e) {}
+
       State.settingsHome = panel.GetParent ? panel.GetParent() : null;
       State.settingsBackdrop = backdrop;
+      State.escapeMenuRoot = escapeMenuRoot;
       State.openedFromEscape = true;
       if (typeof panel.SetParent === "function") panel.SetParent(backdrop);
+      centerSettingsPanel(panel);
+      setupSettingsDragging(panel);
       openSettingsPanel();
       log("settings opened from ESC menu");
     } catch (e) {
       State.settingsHome = null;
       State.settingsBackdrop = null;
+      State.escapeMenuRoot = null;
       State.openedFromEscape = false;
       log("ESC settings open failed: " + (e && e.message ? e.message : String(e)));
     }
@@ -2510,6 +2596,7 @@ function injectTranslation(row, sig, text) {
       const home = State.settingsHome;
       const backdrop = State.settingsBackdrop;
       const returnButton = State.escapeSettingsButton;
+      const returnToEscape = isPanelTreeVisible(State.escapeMenuRoot);
       try {
         if (panel && isValid(home) && typeof panel.SetParent === "function") panel.SetParent(home);
       } catch (e) {}
@@ -2518,9 +2605,10 @@ function injectTranslation(row, sig, text) {
       } catch (e) {}
       State.settingsHome = null;
       State.settingsBackdrop = null;
+      State.escapeMenuRoot = null;
       State.openedFromEscape = false;
       try {
-        if (isValid(returnButton) && typeof returnButton.SetFocus === "function") returnButton.SetFocus();
+        if (returnToEscape && isValid(returnButton) && typeof returnButton.SetFocus === "function") returnButton.SetFocus();
       } catch (e) {}
       return;
     }

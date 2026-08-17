@@ -113,6 +113,10 @@
   border-bottom: 1px solid rgba(255, 252, 244, 0.06);
 }
 
+.LCTSettingsHeader:hover {
+  brightness: 1.04;
+}
+
 .LCTPanelTitle {
   font-size: 18px;
   color: #ffffff;

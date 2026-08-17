@@ -31,6 +31,11 @@ class MockPanel {
     this._submits = [];
     this._focused = false;
     this._events = {};
+    this._registeredEvents = {};
+    this._draggable = false;
+    this.visible = true;
+    this.actualxoffset = 120;
+    this.actualyoffset = 80;
   }
   IsValid() { return !this._deleted; }
   GetParent() { return this._parent; }
@@ -40,6 +45,7 @@ class MockPanel {
   AddClass(c) { this._classes.add(c); }
   RemoveClass(c) { this._classes.delete(c); }
   SetFocus() { this._focused = true; }
+  SetDraggable(value) { this._draggable = !!value; }
   SetPanelEvent(name, fn) { this._events[name] = fn; }
   SetParent(parent) {
     if (this._parent) {
@@ -101,6 +107,7 @@ function freshEnv(cfg) {
   chatControls.addChild(new MockPanel("LCTBridgeDot"));
   // 设置面板(与 chat.xml 同构):TextEntry 焦点处理测试用
   const settingsPanel = contextPanel.addChild(new MockPanel("LCTSettingsPanel"));
+  settingsPanel.addChild(new MockPanel("LCTSettingsHeader")).setClass("LCTSettingsHeader");
   const settingsBody = settingsPanel.addChild(new MockPanel("LCTSettingsBody"));
   settingsBody.addChild(new MockPanel("LCTEnabled"));
   settingsBody.addChild(new MockPanel("LCTApiKey"));
@@ -158,6 +165,7 @@ function freshEnv(cfg) {
       return timer;
     },
     CreatePanel: (type, parent, id) => parent.addChild(new MockPanel(id)).setClass(type === "Label" ? "Label" : type),
+    RegisterEventHandler: (name, panel, fn) => { panel._registeredEvents[name] = fn; },
     RegisterForUnhandledEvent: () => {},
     DispatchEvent: (name, target) => {
       dispatchLog.push({ name, target, text: target && typeof target.text === "string" ? target.text : null });
@@ -596,6 +604,7 @@ async function test20_escapeMenuSettingsKeepsPauseFocus() {
   console.log("\n[20] ESC menu button => settings overlay stays in pause UI and returns focus to menu");
   const env = freshEnv(CFG.bilingual);
   const escapeRoot = env.contextPanel.addChild(new MockPanel("EscapeRoot"));
+  escapeRoot.addChild(new MockPanel("EscapeBackground"));
   const subOptions = escapeRoot.addChild(new MockPanel("SubOptions"));
   const nativeRow = subOptions.addChild(new MockPanel("NativeSettingsRow")).setClass("SettingsRow");
   nativeRow.addChild(new MockPanel("settings"));
@@ -614,6 +623,14 @@ async function test20_escapeMenuSettingsKeepsPauseFocus() {
   const backdrop = env.contextPanel.FindChildTraverse("LCTEscapeSettingsBackdrop");
   assert("settings panel opened on ESC overlay", !!backdrop && panel.GetParent() === backdrop);
   assert("settings panel visible", panel.BHasClass("LCTVisible"));
+  assert("ESC overlay forced to fullscreen", backdrop.style.width === "100%" && backdrop.style.height === "100%");
+  assert("settings panel defaults to centered", panel.style.align === "center center" && panel.style.position === "0px 0px 0px");
+
+  const header = panel.FindChildTraverse("LCTSettingsHeader");
+  assert("settings header is draggable", header._draggable && !!header._registeredEvents.DragStart && !!header._registeredEvents.DragEnd);
+  const dragEvent = {};
+  header._registeredEvents.DragStart(header, dragEvent);
+  assert("drag start moves the settings panel", dragEvent.displayPanel === panel && panel.style.align === "left top");
 
   env.dispatchLog.length = 0;
   const entry = panel.FindChildTraverse("LCTApiKey");
@@ -627,6 +644,15 @@ async function test20_escapeMenuSettingsKeepsPauseFocus() {
   assert("closing removes ESC overlay", !env.contextPanel.FindChildTraverse("LCTEscapeSettingsBackdrop"));
   assert("closing returns focus to BABEL TOWER menu button", injected._focused);
   assert("closing keeps settings panel hidden", !panel.BHasClass("LCTVisible"));
+
+  injected._focused = false;
+  escapeRoot.visible = true;
+  injected._events.onactivate();
+  assert("precondition: settings reopened", panel.BHasClass("LCTVisible"));
+  escapeRoot.visible = false;
+  const closedWithEscape = await waitFor(() => !panel.BHasClass("LCTVisible"), 2500);
+  assert("closing the ESC page also closes BabelTower", closedWithEscape);
+  assert("focus is not returned to a hidden ESC button", !injected._focused);
 }
 
 async function test19_outgoingLanguageBypass() {
@@ -658,6 +684,11 @@ async function test19_outgoingLanguageBypass() {
 
 async function main() {
   console.log("=== Babel Tower lingua_chat simulation tests v7 (bridge must run on 8791) ===");
+  if (process.argv.includes("--esc-settings-only")) {
+    await test20_escapeMenuSettingsKeepsPauseFocus();
+    console.log("\n=== RESULT: PASS " + passCount + " / FAIL " + failCount + " ===");
+    process.exit(failCount === 0 ? 0 : 1);
+  }
   if (process.argv.includes("--chat-input-only")) {
     await test18_outgoingClosesChatImmediately();
     await test19_outgoingLanguageBypass();
